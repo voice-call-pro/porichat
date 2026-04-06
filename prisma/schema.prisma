@@ -3,11 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql" // 🔴 ISSUE 1 Fixed: Scalable DB for production
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// ============ ENUMS (🔴 ISSUE 2 & 8 Fixed) ============
+// ============ ENUMS ============
 
 enum UserRole {
   USER
@@ -79,7 +79,6 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  // Relations (🔴 ISSUE 3 Fixed: Explicit relations added)
   sessionsAsUser1 ChatSession[] @relation("SessionUser1")
   sessionsAsUser2 ChatSession[] @relation("SessionUser2")
   messages        ChatMessage[]
@@ -92,14 +91,13 @@ model AnonymousUser {
   id              String   @id @default(cuid())
   username        String
   gender          Gender   @default(UNKNOWN)
-  fingerprintHash String   @unique // 🔴 ISSUE 5 Fixed + PII Protection (Hashes instead of raw data)
-  ipHash          String           // PII Protection
+  fingerprintHash String   @unique
+  ipHash          String
   isBanned        Boolean  @default(false)
   lastSeen        DateTime @default(now())
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  // Relations (🔴 ISSUE 3 Fixed)
   sessionsAsAnon1 ChatSession[] @relation("SessionAnon1")
   sessionsAsAnon2 ChatSession[] @relation("SessionAnon2")
   messages        ChatMessage[]
@@ -116,15 +114,13 @@ model ChatSession {
   id             String        @id @default(cuid())
   status         SessionStatus @default(WAITING)
 
-  // --- User 1 (Initiator) ---
   user1Type      UserType
   user1Id        String?
   user1          User?         @relation("SessionUser1", fields: [user1Id], references: [id], onDelete: SetNull)
   anon1Id        String?
   anon1          AnonymousUser? @relation("SessionAnon1", fields: [anon1Id], references: [id], onDelete: SetNull)
 
-  // --- User 2 (Matched) --- (🔴 ISSUE 4 Fixed: Empty string defaults removed, made nullable)
-  user2Type      UserType?     
+  user2Type      UserType?
   user2Id        String?
   user2          User?         @relation("SessionUser2", fields: [user2Id], references: [id], onDelete: SetNull)
   anon2Id        String?
@@ -132,15 +128,14 @@ model ChatSession {
 
   startedAt      DateTime      @default(now())
   endedAt        DateTime?
-  duration       Int?          // in seconds
-  endedById      String?       // Stores CUID of the user who ended it
+  duration       Int?
+  endedById      String?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
   messages       ChatMessage[]
 
-  // 🔴 ISSUE 6 & 9 Fixed: Performance indexes
-  @@index([status]) 
+  @@index([status])
   @@index([user1Id])
   @@index([user2Id])
   @@index([anon1Id])
@@ -149,11 +144,10 @@ model ChatSession {
 
 model ChatMessage {
   id            String      @id @default(cuid())
-  
+
   sessionId     String
   session       ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 
-  // Sender Polymorphic Relation
   senderType    UserType
   senderId      String?
   sender        User?       @relation(fields: [senderId], references: [id], onDelete: SetNull)
@@ -165,8 +159,7 @@ model ChatMessage {
   isRead        Boolean     @default(false)
   createdAt     DateTime    @default(now())
 
-  // 🔴 ISSUE 6 Fixed: Composite index for fast message loading per session
-  @@index([sessionId, createdAt]) 
+  @@index([sessionId, createdAt])
   @@index([senderId])
   @@index([anonSenderId])
 }
@@ -176,14 +169,12 @@ model ChatMessage {
 model Report {
   id              String         @id @default(cuid())
 
-  // Reporter
   reporterType    UserType?
   reporterId      String?
   reporter        User?          @relation("ReportedByUser", fields: [reporterId], references: [id], onDelete: SetNull)
   anonReporterId  String?
   anonReporter    AnonymousUser? @relation("ReportedByAnon", fields: [anonReporterId], references: [id], onDelete: SetNull)
 
-  // Reported User
   reportedType    UserType
   reportedId      String?
   reportedUser    User?          @relation("ReportedUser", fields: [reportedId], references: [id], onDelete: Cascade)
@@ -218,10 +209,10 @@ model Ban {
   ipHash          String?
   reason          String
   type            BanType  @default(PERMANENT)
-  duration        Int?     // in minutes
+  duration        Int?
   expiresAt       DateTime?
   isActive        Boolean  @default(true)
-  bannedById      String?  // Admin/Moderator ID
+  bannedById      String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
@@ -236,47 +227,10 @@ model SystemLog {
   id        String   @id @default(cuid())
   level     LogLevel @default(INFO)
   action    String
-  userId    String?  
+  userId    String?
   userType  UserType?
   details   String?
   ipHash    String?
-  createdAt DateTime @default(now())
-
-  @@index([level])
-  @@index([createdAt])
-}
-
-model SystemSetting {
-  id          String   @id @default(cuid())
-  key         String   @unique
-  value       String
-  type        String   @default("string") // keeping string as it defines data format (e.g., "json", "boolean")
-  description String?
-  updatedAt   DateTime @updatedAt
-}
-
-model Analytics {
-  id        String   @id @default(cuid())
-  date      DateTime @db.Date // 🔴 ISSUE 7 Fixed: Specific Date format for PostgreSQL
-  metric    String
-  value     Int      @default(0)
-  createdAt DateTime @default(now())
-
-  @@unique([date, metric])
-  @@index([date])
-}  @@index([ipAddress])
-}
-
-// ============ SYSTEM MODELS ============
-
-model SystemLog {
-  id        String   @id @default(cuid())
-  level     String   @default("info")
-  action    String
-  userId    String?
-  userType  String?
-  details   String?
-  ipAddress String?
   createdAt DateTime @default(now())
 
   @@index([level])
@@ -294,7 +248,7 @@ model SystemSetting {
 
 model Analytics {
   id        String   @id @default(cuid())
-  date      String
+  date      DateTime @db.Date
   metric    String
   value     Int      @default(0)
   createdAt DateTime @default(now())
