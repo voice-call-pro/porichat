@@ -9,9 +9,6 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: false, 
   },
 
-  eslint: {
-    ignoreDuringBuilds: true, 
-  },
 
   images: {
     unoptimized: true, 
