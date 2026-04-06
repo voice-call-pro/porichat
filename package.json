@@ -93,6 +93,8 @@
     "vaul": "^1.1.2",
     "xss": "^1.0.15",
     "zod": "^4.0.2",
+    "sanitize-html": "^2.12.1",
+  "async-mutex": "^0.4.0",
     "zustand": "^5.0.6"
   },
   "devDependencies": {
@@ -109,6 +111,7 @@
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
     "tw-animate-css": "^1.3.5",
-    "typescript": "^5"
+    "typescript": "^5",
+    "@types/sanitize-html": "^2.11.0"
   }
 }
