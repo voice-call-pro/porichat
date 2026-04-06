@@ -81,7 +81,7 @@ model User {
 
   sessionsAsUser1 ChatSession[] @relation("SessionUser1")
   sessionsAsUser2 ChatSession[] @relation("SessionUser2")
-  messages        ChatMessage[]
+  messages        ChatMessage[] @relation("MessageSenderUser")
   reportsFiled    Report[]      @relation("ReportedByUser")
   reportsReceived Report[]      @relation("ReportedUser")
   bansReceived    Ban[]         @relation("BannedUser")
@@ -100,7 +100,7 @@ model AnonymousUser {
 
   sessionsAsAnon1 ChatSession[] @relation("SessionAnon1")
   sessionsAsAnon2 ChatSession[] @relation("SessionAnon2")
-  messages        ChatMessage[]
+  messages        ChatMessage[] @relation("MessageSenderAnon")
   reportsFiled    Report[]      @relation("ReportedByAnon")
   reportsReceived Report[]      @relation("ReportedAnon")
   bansReceived    Ban[]         @relation("BannedAnon")
@@ -150,9 +150,9 @@ model ChatMessage {
 
   senderType    UserType
   senderId      String?
-  sender        User?       @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  sender        User?       @relation("MessageSenderUser", fields: [senderId], references: [id], onDelete: SetNull)
   anonSenderId  String?
-  anonSender    AnonymousUser? @relation(fields: [anonSenderId], references: [id], onDelete: SetNull)
+  anonSender    AnonymousUser? @relation("MessageSenderAnon", fields: [anonSenderId], references: [id], onDelete: SetNull)
 
   content       String
   type          MessageType @default(TEXT)
@@ -253,6 +253,4 @@ model Analytics {
   value     Int      @default(0)
   createdAt DateTime @default(now())
 
-  @@unique([date, metric])
-  @@index([date])
-}
+  @@unique([date
