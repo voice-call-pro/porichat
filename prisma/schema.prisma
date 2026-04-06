@@ -117,12 +117,14 @@ model ChatSession {
   user1Type      UserType
   user1Id        String?
   user1          User?         @relation("SessionUser1", fields: [user1Id], references: [id], onDelete: SetNull)
+  user1Name      String?
   anon1Id        String?
   anon1          AnonymousUser? @relation("SessionAnon1", fields: [anon1Id], references: [id], onDelete: SetNull)
 
   user2Type      UserType?
   user2Id        String?
   user2          User?         @relation("SessionUser2", fields: [user2Id], references: [id], onDelete: SetNull)
+  user2Name      String?
   anon2Id        String?
   anon2          AnonymousUser? @relation("SessionAnon2", fields: [anon2Id], references: [id], onDelete: SetNull)
 
@@ -151,6 +153,7 @@ model ChatMessage {
   senderType    UserType
   senderId      String?
   sender        User?       @relation("MessageSenderUser", fields: [senderId], references: [id], onDelete: SetNull)
+  senderName    String?
   anonSenderId  String?
   anonSender    AnonymousUser? @relation("MessageSenderAnon", fields: [anonSenderId], references: [id], onDelete: SetNull)
 
@@ -172,12 +175,14 @@ model Report {
   reporterType    UserType?
   reporterId      String?
   reporter        User?          @relation("ReportedByUser", fields: [reporterId], references: [id], onDelete: SetNull)
+  reporterName    String?
   anonReporterId  String?
   anonReporter    AnonymousUser? @relation("ReportedByAnon", fields: [anonReporterId], references: [id], onDelete: SetNull)
 
   reportedType    UserType
   reportedId      String?
   reportedUser    User?          @relation("ReportedUser", fields: [reportedId], references: [id], onDelete: Cascade)
+  reportedName    String?
   anonReportedId  String?
   anonReported    AnonymousUser? @relation("ReportedAnon", fields: [anonReportedId], references: [id], onDelete: Cascade)
 
