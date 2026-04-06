@@ -53,7 +53,7 @@ export async function POST(
             where: { id: ban.userId },
             data: { isBanned: false },
           });
-        } else if (ban.userType === 'anonymous') {
+        } else if (ban.userType === UserType.ANONYMOUS && ban.userId) {
           await db.anonymousUser.updateMany({
             where: { id: ban.userId },
             data: { isBanned: false },
