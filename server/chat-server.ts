@@ -362,8 +362,8 @@ function getClientIp(socket: Socket): string {
 async function checkBan(
   userId: string | null,
   userType: string | null,
-  fingerprint: string,
-  ipAddress?: string
+  fingerprintHash: string,
+  ipHash?: string
 ): Promise<{ reason: string; expiresAt: Date | null } | null> {
   const now = new Date()
 
@@ -374,9 +374,9 @@ async function checkBan(
         where: {
           isActive: true,
           OR: [
-            { fingerprint },
-            ...(userId && userType === 'registered' ? [{ userId }] : []),
-            ...(ipAddress ? [{ ipAddress }] : []),
+            { fingerprintHash },
+            ...(userId && userType === 'REGISTERED' ? [{ userId }] : []),
+            ...(ipHash ? [{ ipHash }] : []),
           ],
         },
       })
@@ -447,10 +447,10 @@ async function endSession(
       db.chatSession.update({
         where: { id: sessionId },
         data: {
-          status: 'ended',
+          status: 'ENDED',
           endedAt: new Date(),
           duration,
-          endedBy: endedBy || 'system',
+          endedById: endedBy || 'system',
         },
       })
     )
@@ -516,12 +516,12 @@ async function attemptMatch(): Promise<void> {
         const session = await tx.chatSession.create({
           data: {
             user1Id: user1.user.id,
-            user1Type: user1.user.type,
+            user1Type: user1.user.type.toUpperCase() as 'REGISTERED' | 'ANONYMOUS',
             user1Name: user1.user.name,
             user2Id: user2.user.id,
-            user2Type: user2.user.type,
+            user2Type: user2.user.type.toUpperCase() as 'REGISTERED' | 'ANONYMOUS',
             user2Name: user2.user.name,
-            status: 'active',
+            status: 'ACTIVE',
             startedAt: new Date(),
           },
         })
@@ -530,10 +530,10 @@ async function attemptMatch(): Promise<void> {
           data: {
             sessionId: session.id,
             senderId: 'system',
-            senderType: 'system',
+            senderType: 'ANONYMOUS',
             senderName: 'System',
             content: 'Chat session started. Say hello! 🎉',
-            type: 'system',
+            type: 'SYSTEM',
             isRead: true,
           },
         })
@@ -685,12 +685,12 @@ async function flushLogs(): Promise<void> {
         logsToFlush.map(log =>
           db.systemLog.create({
             data: {
-              level: log.level,
+              level: log.level as 'INFO' | 'WARN' | 'ERROR' | 'FATAL',
               action: log.action,
               userId: log.userId || null,
-              userType: log.userType || null,
+              userType: log.userType?.toUpperCase() as 'REGISTERED' | 'ANONYMOUS' | null,
               details: log.details || null,
-              ipAddress: log.ipAddress || null,
+              ipHash: log.ipAddress || null,
             },
           })
         )
@@ -922,7 +922,7 @@ function resetInactivityTimer(socketId: string): void {
     clearIntervalSafe(socketId)
 
     await logSystemEvent(
-      'warn',
+      'WARN',
       'inactivity_timeout',
       user.id,
       user.type,
@@ -959,7 +959,7 @@ io.on('connection', async (socket) => {
 
   if (ipEntry.count > MAX_CONNECTIONS_PER_IP_PER_MINUTE) {
     socket.emit('error', { message: 'Too many connection attempts. Please wait.' })
-    await logSystemEvent('warn', 'ip_rate_limited', undefined, undefined, `IP ${clientIp} exceeded connection rate limit`, clientIp)
+    await logSystemEvent('WARN', 'ip_rate_limited', undefined, undefined, `IP ${clientIp} exceeded connection rate limit`, clientIp)
     socket.disconnect(true)
     return
   }
@@ -967,7 +967,7 @@ io.on('connection', async (socket) => {
   // FIX #13: Global IP rate limit check
   if (!checkGlobalIpRateLimit(clientIp)) {
     socket.emit('error', { message: 'Rate limit exceeded. Please slow down.' })
-    await logSystemEvent('warn', 'global_ip_rate_limited', undefined, undefined, `IP ${clientIp} exceeded global rate limit`, clientIp)
+    await logSystemEvent('WARN', 'global_ip_rate_limited', undefined, undefined, `IP ${clientIp} exceeded global rate limit`, clientIp)
     socket.disconnect(true)
     return
   }
@@ -1002,17 +1002,17 @@ io.on('connection', async (socket) => {
         return
       }
 
-      const ban = await checkBan(user.id, 'registered', authData.fingerprint, clientIp)
+      const ban = await checkBan(user.id, 'REGISTERED', authData.fingerprint, clientIp)
       if (ban) {
         socket.emit('banned', {
           reason: ban.reason,
           expiresAt: ban.expiresAt,
         })
         await logSystemEvent(
-          'warn',
+          'WARN',
           'banned_user_connection_attempt',
           user.id,
-          'registered',
+          'REGISTERED',
           `Rejected: ${ban.reason}`,
           clientIp
         )
@@ -1045,17 +1045,17 @@ io.on('connection', async (socket) => {
         return
       }
 
-      const ban = await checkBan(null, 'anonymous', fingerprint, clientIp)
+      const ban = await checkBan(null, 'ANONYMOUS', fingerprint, clientIp)
       if (ban) {
         socket.emit('banned', {
           reason: ban.reason,
           expiresAt: ban.expiresAt,
         })
         await logSystemEvent(
-          'warn',
+          'WARN',
           'banned_anonymous_connection_attempt',
           undefined,
-          'anonymous',
+          'ANONYMOUS',
           `Rejected: ${ban.reason}`,
           clientIp
         )
@@ -1065,20 +1065,20 @@ io.on('connection', async (socket) => {
 
       let anonUser = await withDBRetry(() =>
         db.anonymousUser.findUnique({
-          where: { fingerprint },
+          where: { fingerprintHash: fingerprint },
         })
       )
 
-      const gender = authData.gender || 'unknown'
+      const gender = (authData.gender || 'UNKNOWN').toUpperCase() as 'MALE' | 'FEMALE' | 'UNKNOWN'
 
       if (anonUser) {
         anonUser = await withDBRetry(() =>
           db.anonymousUser.update({
-            where: { fingerprint },
+            where: { fingerprintHash: fingerprint },
             data: {
               lastSeen: new Date(),
-              ipAddress: clientIp,
-              ...(gender !== 'unknown' ? { gender } : {}),
+              ipHash: clientIp,
+              ...(gender !== 'UNKNOWN' ? { gender } : {}),
             },
           })
         )
@@ -1089,8 +1089,8 @@ io.on('connection', async (socket) => {
             data: {
               username,
               gender,
-              fingerprint,
-              ipAddress: clientIp,
+              fingerprintHash: fingerprint,
+              ipHash: clientIp,
             },
           })
         )
@@ -1148,7 +1148,7 @@ io.on('connection', async (socket) => {
     )
     if (lockdownSetting && lockdownSetting.value === 'true') {
       socket.emit('system_error', { message: 'PoriChat is currently in maintenance mode. Please try again later.' })
-      await logSystemEvent('warn', 'lockdown_rejected', userData.id, userData.type, 'User rejected due to lockdown mode', clientIp)
+      await logSystemEvent('WARN', 'lockdown_rejected', userData.id, userData.type, 'User rejected due to lockdown mode', clientIp)
       socket.disconnect(true)
       return
     }
@@ -1212,7 +1212,7 @@ io.on('connection', async (socket) => {
     socket.emit('searching', { message: 'Looking for a match...' })
     console.log(`[Queue] ${user.name} joined the queue (queue size: ${matchingQueue.size})`)
 
-    await logSystemEvent('info', 'join_queue', user.id, user.type, 'User joined matching queue', clientIp)
+    await logSystemEvent('INFO', 'join_queue', user.id, user.type, 'User joined matching queue', clientIp)
 
     if (matchingQueue.size >= 2) {
       await attemptMatch()
@@ -1236,7 +1236,7 @@ io.on('connection', async (socket) => {
       socket.emit('match_cancelled', { message: 'Match search cancelled' })
       console.log(`[Queue] ${user.name} cancelled match search`)
 
-      await logSystemEvent('info', 'cancel_queue', user.id, user.type, 'User cancelled match search', clientIp)
+      await logSystemEvent('INFO', 'cancel_queue', user.id, user.type, 'User cancelled match search', clientIp)
     }
   })
 
@@ -1253,7 +1253,7 @@ io.on('connection', async (socket) => {
     // FIX #2: Zod validation for all input
     const validationResult = ChatMessageSchema.safeParse(rawData)
     if (!validationResult.success) {
-      socket.emit('error', { message: 'Invalid message data', details: validationResult.error.errors })
+      socket.emit('error', { message: 'Invalid message data', details: validationResult.error.issues })
       return
     }
 
@@ -1269,7 +1269,7 @@ io.on('connection', async (socket) => {
     const spamCheck = checkSpam(socket.id, data.content)
     if (spamCheck.isSpam) {
       socket.emit('spam_detected', { message: spamCheck.reason })
-      await logSystemEvent('warn', 'spam_detected', undefined, undefined, `Spam detected: ${spamCheck.reason}`, clientIp)
+      await logSystemEvent('WARN', 'spam_detected', undefined, undefined, `Spam detected: ${spamCheck.reason}`, clientIp)
       return
     }
 
@@ -1278,7 +1278,7 @@ io.on('connection', async (socket) => {
       socket.emit('error', { message: 'Message cannot be empty' })
       return
     }
-    const messageType = validateEventType(data.type) ? data.type : 'text'
+    const messageType = (validateEventType(data.type) ? data.type : 'text').toUpperCase() as 'TEXT' | 'EMOJI' | 'SYSTEM'
 
     const user = getUserData(socket)
     if (!user) return
@@ -1298,7 +1298,7 @@ io.on('connection', async (socket) => {
           data: {
             sessionId: session.sessionId,
             senderId: user.id,
-            senderType: user.type,
+            senderType: user.type.toUpperCase() as 'REGISTERED' | 'ANONYMOUS',
             senderName: user.name,
             content: sanitizedContent,
             type: messageType,
@@ -1423,7 +1423,7 @@ io.on('connection', async (socket) => {
 
     const validationResult = GifDataSchema.safeParse(rawData)
     if (!validationResult.success) {
-      socket.emit('error', { message: 'Invalid GIF data', details: validationResult.error.errors })
+      socket.emit('error', { message: 'Invalid GIF data', details: validationResult.error.issues })
       return
     }
 
@@ -1453,10 +1453,10 @@ io.on('connection', async (socket) => {
           data: {
             sessionId: session.sessionId,
             senderId: user.id,
-            senderType: user.type,
+            senderType: user.type.toUpperCase() as 'REGISTERED' | 'ANONYMOUS',
             senderName: user.name,
             content: data.url,
-            type: 'gif',
+            type: 'GIF',
             isRead: false,
           },
         })
@@ -1469,7 +1469,7 @@ io.on('connection', async (socket) => {
         senderName: user.name,
         senderType: user.type,
         content: data.url,
-        type: 'gif',
+        type: 'GIF',
         isRead: false,
         createdAt: message.createdAt.toISOString(),
       })
@@ -1478,7 +1478,7 @@ io.on('connection', async (socket) => {
         id: message.id,
         sessionId: session.sessionId,
         content: data.url,
-        type: 'gif',
+        type: 'GIF',
         createdAt: message.createdAt.toISOString(),
       })
     } catch (error) {
@@ -1522,7 +1522,7 @@ io.on('connection', async (socket) => {
     await endSession(session.sessionId, user.id, session.user1SocketId, session.user2SocketId)
 
     console.log(`[Session] ${user.name} skipped/reconnected (session: ${session.sessionId})`)
-    await logSystemEvent('info', 'skip_session', user.id, user.type, `User skipped session ${session.sessionId}`, clientIp)
+    await logSystemEvent('INFO', 'skip_session', user.id, user.type, `User skipped session ${session.sessionId}`, clientIp)
 
     addToQueueInternal(socket.id, user)
     socket.emit('searching', { message: 'Looking for a new match...' })
@@ -1547,7 +1547,7 @@ io.on('connection', async (socket) => {
 
     const validationResult = ReportDataSchema.safeParse(rawData)
     if (!validationResult.success) {
-      socket.emit('error', { message: 'Invalid report data', details: validationResult.error.errors })
+      socket.emit('error', { message: 'Invalid report data', details: validationResult.error.issues })
       return
     }
 
@@ -1581,18 +1581,18 @@ io.on('connection', async (socket) => {
         db.report.create({
           data: {
             reporterId: user.id,
-            reporterType: user.type,
+            reporterType: user.type.toUpperCase() as 'REGISTERED' | 'ANONYMOUS',
             reporterName: user.name,
             reportedId,
-            reportedType,
-            reportedName,
-            fingerprint: user.fingerprint,
-            ipAddress: clientIp,
+            reportedType: reportedType?.toUpperCase() as 'REGISTERED' | 'ANONYMOUS',
+            reportedName: reportedName || null,
+            fingerprintHash: user.fingerprint,
+            ipHash: clientIp,
             reason: data.reason,
             description: data.description || null,
             chatSessionId: session.sessionId,
-            status: 'pending',
-            severity: 'medium',
+            status: 'PENDING',
+            severity: 'MEDIUM',
           },
         })
       )
@@ -1631,7 +1631,7 @@ io.on('connection', async (socket) => {
 
     const validationResult = ChatHistorySchema.safeParse(rawData)
     if (!validationResult.success) {
-      socket.emit('error', { message: 'Invalid parameters', details: validationResult.error.errors })
+      socket.emit('error', { message: 'Invalid parameters', details: validationResult.error.issues })
       return
     }
 
@@ -1735,7 +1735,7 @@ io.on('connection', async (socket) => {
       const dbUser = await withDBRetry(() =>
         db.user.findUnique({ where: { id: user.id } })
       )
-      if (!dbUser || (dbUser.role !== 'admin' && dbUser.role !== 'moderator')) {
+      if (!dbUser || (dbUser.role !== 'ADMIN' && dbUser.role !== 'MODERATOR')) {
         socket.emit('error', { message: 'Access denied' })
         return
       }
@@ -1749,9 +1749,9 @@ io.on('connection', async (socket) => {
         await withDBRetry(async () => {
           const [ts, asc, tm, tr, ab] = await Promise.all([
             db.chatSession.count(),
-            db.chatSession.count({ where: { status: 'active' } }),
+            db.chatSession.count({ where: { status: 'ACTIVE' } }),
             db.chatMessage.count(),
-            db.report.count({ where: { status: 'pending' } }),
+            db.report.count({ where: { status: 'PENDING' } }),
             db.ban.count({ where: { isActive: true } }),
           ])
           return [ts, asc, tm, tr, ab]
