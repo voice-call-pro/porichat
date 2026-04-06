@@ -253,4 +253,6 @@ model Analytics {
   value     Int      @default(0)
   createdAt DateTime @default(now())
 
-  @@unique([date
+  @@unique([date, metric])
+  @@index([date])
+}
