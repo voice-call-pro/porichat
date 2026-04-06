@@ -48,7 +48,7 @@ export async function POST(
 
       // Only set isBanned=false if no other active bans exist
       if (otherActiveBans === 0) {
-        if (ban.userType === 'registered') {
+        if (ban.userType === UserType.REGISTERED && ban.userId) {
           await db.user.update({
             where: { id: ban.userId },
             data: { isBanned: false },
