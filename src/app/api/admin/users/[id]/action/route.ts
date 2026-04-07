@@ -52,7 +52,7 @@ export async function POST(
         await db.ban.create({
           data: {
             userId: targetUser.id,
-            userType: 'registered',
+            userType: 'REGISTERED',
             userName: targetUser.name,
             reason: reason || 'Banned by admin',
             type: duration ? 'temporary' : 'permanent',
