@@ -30,10 +30,8 @@ export async function POST(request: NextRequest) {
     }
 
     // 🔥 Convert string → Prisma enum
-    const finalType =
-      type === 'temporary'
-        ? BanType.TEMPORARY
-        : BanType.PERMANENT;
+    const finalType = type;
+     
 
     // ⏳ Calculate expiration
     const expiresAt =
