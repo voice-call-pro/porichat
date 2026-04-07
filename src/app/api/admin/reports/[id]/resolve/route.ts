@@ -3,13 +3,14 @@ import { db } from '@/lib/db';
 import { adminAuth } from '@/lib/auth';
 import { successResponse, errorResponse } from '@/lib/response';
 import { resolveReportSchema } from '@/lib/validation';
+import { LogLevel, UserType, ReportStatus } from '@prisma/client';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Verify admin authentication
+    // 🔐 Verify admin authentication
     const admin = await adminAuth(request);
     if (!admin) {
       return errorResponse('Unauthorized', 401);
@@ -18,7 +19,7 @@ export async function POST(
     const { id } = await params;
     const body = await request.json();
 
-    // Validate input
+    // ✅ Validate input
     const parsed = resolveReportSchema.safeParse(body);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
@@ -27,7 +28,7 @@ export async function POST(
 
     const { action, note } = parsed.data;
 
-    // Find report
+    // 🔍 Find report
     const report = await db.report.findUnique({
       where: { id },
     });
@@ -36,8 +37,13 @@ export async function POST(
       return errorResponse('Report not found', 404);
     }
 
-    // Update report status
-    const newStatus = action === 'resolve' ? 'resolved' : 'dismissed';
+    // 🔄 Convert action → enum
+    const newStatus =
+      action === 'resolve'
+        ? ReportStatus.RESOLVED
+        : ReportStatus.REJECTED;
+
+    // ✅ Update report
     await db.report.update({
       where: { id },
       data: {
@@ -46,14 +52,18 @@ export async function POST(
       },
     });
 
-    // Log action
+    // 🧾 Log action
     await db.systemLog.create({
       data: {
-        level: 'info',
-        action: `report_${newStatus}`,
+        level: LogLevel.INFO,
+        action: `report_${newStatus.toLowerCase()}`,
         userId: admin.id,
-        userType: 'registered',
-        details: `${admin.name} ${newStatus} report ${id}. Note: ${note || 'None'}. Reported user: ${report.reportedName} (${report.reportedId})`,
+        userType: UserType.REGISTERED,
+        details: `${admin.name} ${newStatus} report ${id}. Note: ${
+          note || 'None'
+        }. Reported user: ${
+          report.reportedId || report.anonReportedId || 'unknown'
+        }`,
       },
     });
 
@@ -61,8 +71,11 @@ export async function POST(
       message: `Report has been ${newStatus}`,
       reportId: id,
     });
+
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
