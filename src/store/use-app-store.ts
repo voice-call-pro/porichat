@@ -1,4 +1,7 @@
 import { create } from 'zustand'
+import { UserRole } from '@prisma/client'
+
+// ================= TYPES =================
 
 export type PageName =
   | 'home'
@@ -20,16 +23,20 @@ export interface User {
   id: string
   name: string
   email: string
-  role: string
+  role: UserRole // ✅ FIXED
   token: string
 }
 
 export interface AnonymousUser {
   id: string
   username: string
-  gender: 'male' | 'female' | 'other'
+  gender: 'MALE' | 'FEMALE' | 'UNKNOWN' // ✅ FIXED
   fingerprint: string
 }
+
+type PartnerType = 'REGISTERED' | 'ANONYMOUS'
+
+// ================= STORE =================
 
 interface AppState {
   currentPage: PageName
@@ -39,7 +46,7 @@ interface AppState {
   anonymousUser: AnonymousUser | null
   language: 'en' | 'bn'
   chatState: 'idle' | 'selecting-gender' | 'connecting' | 'matched' | 'disconnected'
-  partnerInfo: { id: string; name: string; type: string } | null
+  partnerInfo: { id: string; name: string; type: PartnerType } | null
 
   navigateTo: (page: PageName) => void
   goBack: () => void
@@ -48,8 +55,10 @@ interface AppState {
   logout: () => void
   toggleLanguage: () => void
   setChatState: (state: AppState['chatState']) => void
-  setPartnerInfo: (partner: { id: string; name: string; type: string } | null) => void
+  setPartnerInfo: (partner: { id: string; name: string; type: PartnerType } | null) => void
 }
+
+// ================= STORE =================
 
 export const useAppStore = create<AppState>((set) => ({
   currentPage: 'home',
@@ -77,6 +86,7 @@ export const useAppStore = create<AppState>((set) => ({
     set({
       user,
       isAnonymous: !user,
+      anonymousUser: null, // ✅ FIX
     }),
 
   setAnonymousUser: (user) =>
@@ -89,8 +99,11 @@ export const useAppStore = create<AppState>((set) => ({
   logout: () =>
     set({
       user: null,
+      anonymousUser: null, // ✅ FIX
       isAnonymous: true,
       currentPage: 'home',
+      chatState: 'idle', // ✅ FIX
+      partnerInfo: null, // ✅ FIX
     }),
 
   toggleLanguage: () =>
@@ -99,5 +112,6 @@ export const useAppStore = create<AppState>((set) => ({
     })),
 
   setChatState: (chatState) => set({ chatState }),
+
   setPartnerInfo: (partnerInfo) => set({ partnerInfo }),
 }))
