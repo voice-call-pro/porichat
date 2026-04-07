@@ -3,10 +3,11 @@ import { db } from '@/lib/db';
 import { adminAuth } from '@/lib/auth';
 import { successResponse, errorResponse } from '@/lib/response';
 import { manualBanSchema } from '@/lib/validation';
+import { BanType, LogLevel, UserType } from '@prisma/client';
 
 export async function POST(request: NextRequest) {
   try {
-    // Verify admin authentication
+    // 🔐 Verify admin authentication
     const admin = await adminAuth(request);
     if (!admin) {
       return errorResponse('Unauthorized', 401);
@@ -14,7 +15,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json();
 
-    // Validate input
+    // ✅ Validate input
     const parsed = manualBanSchema.safeParse(body);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
@@ -23,46 +24,56 @@ export async function POST(request: NextRequest) {
 
     const { fingerprint, ipAddress, reason, type, duration } = parsed.data;
 
-    // At least one identifier must be provided
+    // ❗ Must have at least one identifier
     if (!fingerprint && !ipAddress) {
       return errorResponse('Either fingerprint or ipAddress must be provided', 400);
     }
 
-    // Calculate expiration for temporary bans
-    const expiresAt = type === 'temporary' && duration
-      ? new Date(Date.now() + duration * 1000)
-      : null;
+    // 🔥 Convert string → Prisma enum
+    const finalType =
+      type === 'temporary'
+        ? BanType.TEMPORARY
+        : BanType.PERMANENT;
 
-    // Create ban record
+    // ⏳ Calculate expiration
+    const expiresAt =
+      finalType === BanType.TEMPORARY && duration
+        ? new Date(Date.now() + duration * 1000)
+        : null;
+
+    // ✅ Create ban
     const ban = await db.ban.create({
       data: {
-        fingerprint: fingerprint || undefined,
-        ipAddress: ipAddress || undefined,
+        fingerprintHash: fingerprint || undefined,
+        ipHash: ipAddress || undefined,
         reason,
-        type,
+        type: finalType,
         duration: duration || null,
         expiresAt,
-        bannedBy: admin.id,
-        bannedByName: admin.name,
+        bannedById: admin.id,
       },
     });
 
-    // Try to ban matching anonymous users
+    // 👻 Ban matching anonymous users
     if (fingerprint) {
       await db.anonymousUser.updateMany({
-        where: { fingerprint },
+        where: { fingerprintHash: fingerprint },
         data: { isBanned: true },
       });
     }
 
-    // Log action
+    // 🧾 Log action
     await db.systemLog.create({
       data: {
-        level: 'warning',
+        level: LogLevel.WARN,
         action: 'manual_ban',
         userId: admin.id,
-        userType: 'registered',
-        details: `${admin.name} created manual ban. Type: ${type}, Duration: ${duration || 'permanent'}. Fingerprint: ${fingerprint || 'none'}, IP: ${ipAddress || 'none'}. Reason: ${reason}`,
+        userType: UserType.REGISTERED,
+        details: `${admin.name} created manual ban. Type: ${finalType}, Duration: ${
+          duration || 'permanent'
+        }. Fingerprint: ${fingerprint || 'none'}, IP: ${
+          ipAddress || 'none'
+        }. Reason: ${reason}`,
       },
     });
 
@@ -70,8 +81,11 @@ export async function POST(request: NextRequest) {
       message: 'Manual ban has been created',
       ban,
     });
+
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
