@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { useAppStore } from '@/store/use-app-store'
 import { useSocket } from '@/hooks/use-socket'
 import { toast } from 'sonner'
+
 import Header from '@/components/layout/Header'
 import Footer from '@/components/layout/Footer'
 import HomePage from '@/components/chat/HomePage'
@@ -16,6 +17,7 @@ import SignupPage from '@/components/auth/SignupPage'
 import AboutPage from '@/components/legal/AboutPage'
 import PrivacyPage from '@/components/legal/PrivacyPage'
 import TermsPage from '@/components/legal/TermsPage'
+
 import AdminLayout from '@/components/admin/AdminLayout'
 import AdminDashboard from '@/components/admin/AdminDashboard'
 import AdminReports from '@/components/admin/AdminReports'
@@ -33,7 +35,6 @@ export default function Home() {
     setPartnerInfo,
     setAnonymousUser,
     user,
-    language,
   } = useAppStore()
 
   const [partnerName, setPartnerName] = useState('')
@@ -41,7 +42,6 @@ export default function Home() {
 
   const {
     isConnected,
-    isConnecting,
     connect,
     disconnect,
     findMatch,
@@ -56,14 +56,18 @@ export default function Home() {
     error: socketError,
   } = useSocket()
 
-  // Handle socket errors
+  // 🔥 helper (IMPORTANT FIX)
+  const mapPartnerType = (type: string) =>
+    type === 'registered' ? 'REGISTERED' : 'ANONYMOUS'
+
+  // Socket error toast
   useEffect(() => {
-    if (socketError) {
-      toast.error(socketError)
-    }
+    if (socketError) toast.error(socketError)
   }, [socketError])
 
-  // Handle gender selection and connect
+  // =============================
+  // 🎯 Gender select (ANON USER)
+  // =============================
   const handleGenderSelect = useCallback(
     (gender: 'MALE' | 'FEMALE') => {
       const anonymousName = `Stranger_${Math.floor(Math.random() * 9000) + 1000}`
@@ -84,19 +88,30 @@ export default function Home() {
           onMatched: (data) => {
             setPartnerName(data.partner.name)
             setPartnerDisconnected(false)
-            setPartnerInfo(data.partner)
+
+            // ✅ FIXED
+            setPartnerInfo({
+              id: data.partner.id,
+              name: data.partner.name,
+              type: mapPartnerType(data.partner.type),
+            })
+
             setChatState('matched')
           },
+
           onPartnerDisconnected: () => {
             setPartnerDisconnected(true)
           },
+
           onMatchTimeout: () => {
-            toast.error('Could not find a match. Try again!')
+            toast.error('Could not find a match')
             setChatState('idle')
           },
+
           onError: (err) => {
             toast.error(err.message)
           },
+
           onBanned: (data) => {
             toast.error(`Banned: ${data.reason}`)
             setChatState('idle')
@@ -110,43 +125,57 @@ export default function Home() {
     [connect, setAnonymousUser, setChatState, setPartnerInfo, disconnect]
   )
 
-  // Handle logged-in user starting chat
+  // =============================
+  // 🎯 LOGGED USER
+  // =============================
   const handleLoggedInStartChat = useCallback(() => {
-    if (user) {
-      connect(
-        {
-          token: user.token,
-        },
-        {
-          onMatched: (data) => {
-            setPartnerName(data.partner.name)
-            setPartnerDisconnected(false)
-            setPartnerInfo(data.partner)
-            setChatState('matched')
-          },
-          onPartnerDisconnected: () => {
-            setPartnerDisconnected(true)
-          },
-          onMatchTimeout: () => {
-            toast.error('Could not find a match. Try again!')
-            setChatState('idle')
-          },
-          onError: (err) => {
-            toast.error(err.message)
-          },
-          onBanned: (data) => {
-            toast.error(`Banned: ${data.reason}`)
-            setChatState('idle')
-            disconnect()
-          },
-        }
-      )
-    } else {
+    if (!user) {
       setChatState('selecting-gender')
+      return
     }
+
+    connect(
+      { token: user.token },
+      {
+        onMatched: (data) => {
+          setPartnerName(data.partner.name)
+          setPartnerDisconnected(false)
+
+          // ✅ FIXED
+          setPartnerInfo({
+            id: data.partner.id,
+            name: data.partner.name,
+            type: mapPartnerType(data.partner.type),
+          })
+
+          setChatState('matched')
+        },
+
+        onPartnerDisconnected: () => {
+          setPartnerDisconnected(true)
+        },
+
+        onMatchTimeout: () => {
+          toast.error('Could not find a match')
+          setChatState('idle')
+        },
+
+        onError: (err) => {
+          toast.error(err.message)
+        },
+
+        onBanned: (data) => {
+          toast.error(`Banned: ${data.reason}`)
+          setChatState('idle')
+          disconnect()
+        },
+      }
+    )
   }, [user, connect, setChatState, setPartnerInfo, disconnect])
 
-  // When connected and in connecting state, find match
+  // =============================
+  // Auto find match
+  // =============================
   useEffect(() => {
     if (chatState === 'connecting' && isConnected) {
       findMatch()
@@ -161,7 +190,7 @@ export default function Home() {
     setPartnerInfo(null)
   }, [cancelMatch, disconnect, setChatState, setPartnerInfo])
 
-  // Handle next
+  // Next user
   const handleNext = useCallback(() => {
     sendNext()
     setPartnerDisconnected(false)
@@ -169,7 +198,7 @@ export default function Home() {
     setTimeout(() => findMatch(), 500)
   }, [sendNext, findMatch])
 
-  // Handle report
+  // Report
   const handleReport = useCallback(
     (reason: string, description: string) => {
       reportUser(reason, description)
@@ -177,9 +206,10 @@ export default function Home() {
     [reportUser]
   )
 
-  // Determine which content to show
+  // =============================
+  // UI RENDER
+  // =============================
   const renderContent = () => {
-    // Chat states
     if (chatState === 'selecting-gender') {
       return <GenderSelect onSelect={handleGenderSelect} onBack={() => setChatState('idle')} />
     }
@@ -204,7 +234,6 @@ export default function Home() {
       )
     }
 
-    // Regular pages
     switch (currentPage) {
       case 'login':
         return <LoginPage />
@@ -247,6 +276,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {!isChatPage && <Header />}
+
       <main className="flex-1">
         <AnimatePresence mode="wait">
           <motion.div
@@ -260,6 +290,7 @@ export default function Home() {
           </motion.div>
         </AnimatePresence>
       </main>
+
       {!isChatPage && <Footer />}
     </div>
   )
