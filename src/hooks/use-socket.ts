@@ -238,6 +238,7 @@ export function useSocket(): UseSocketReturn {
     sendStopTyping,
     sendMessageSeen,
     sendNext,
+    reportUser,
     messages,
     partnerTyping,
     error,
