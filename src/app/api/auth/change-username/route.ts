@@ -22,7 +22,7 @@ export async function PUT(request: NextRequest) {
     // If fingerprint is provided, update anonymous user
     if (fingerprint) {
       const anonUser = await db.anonymousUser.findFirst({
-        where: { fingerprint },
+        where: { fingerprintHash:fingerprint },
       });
 
       if (!anonUser) {
