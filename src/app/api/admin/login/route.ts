@@ -3,12 +3,13 @@ import { db } from '@/lib/db';
 import { generateToken, comparePassword } from '@/lib/auth';
 import { successResponse, errorResponse } from '@/lib/response';
 import { loginSchema } from '@/lib/validation';
+import { LogLevel, UserType, UserRole } from '@prisma/client';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
 
-    // Validate input
+    // ✅ Validate input
     const parsed = loginSchema.safeParse(body);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
@@ -17,7 +18,7 @@ export async function POST(request: NextRequest) {
 
     const { email, password } = parsed.data;
 
-    // Find user by email
+    // 🔍 Find user
     const user = await db.user.findUnique({
       where: { email: email.toLowerCase() },
     });
@@ -26,21 +27,27 @@ export async function POST(request: NextRequest) {
       return errorResponse('Invalid email or password', 401);
     }
 
-    // Verify admin or moderator role
-    if (user.role !== 'admin' && user.role !== 'moderator') {
-      return errorResponse('Access denied. Admin or moderator role required.', 403);
+    // 🔐 Role check (FIXED)
+    if (
+      user.role !== UserRole.ADMIN &&
+      user.role !== UserRole.MODERATOR
+    ) {
+      return errorResponse(
+        'Access denied. Admin or moderator role required.',
+        403
+      );
     }
 
-    // Compare password
+    // 🔑 Password check
     const isMatch = await comparePassword(password, user.passwordHash);
     if (!isMatch) {
       return errorResponse('Invalid email or password', 401);
     }
 
-    // Generate JWT token
+    // 🎟️ Generate token
     const token = generateToken(user.id, user.role);
 
-    // Update online status
+    // 🟢 Update status
     await db.user.update({
       where: { id: user.id },
       data: {
@@ -49,13 +56,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Log admin login
+    // 🧾 Log login (FIXED)
     await db.systemLog.create({
       data: {
-        level: 'info',
+        level: LogLevel.INFO,
         action: 'admin_login',
         userId: user.id,
-        userType: 'registered',
+        userType: UserType.REGISTERED,
         details: `${user.name} logged in as ${user.role}`,
       },
     });
@@ -69,8 +76,11 @@ export async function POST(request: NextRequest) {
       },
       token,
     });
+
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
