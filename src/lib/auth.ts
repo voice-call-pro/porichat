@@ -1,18 +1,18 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { db } from '@/lib/db';
-import { errorResponse } from '@/lib/response';
+import { UserRole } from '@prisma/client';
 
 // Token payload type
 interface TokenPayload {
   userId: string;
-  role: string;
+  role: UserRole;
 }
 
 /**
  * Generate a JWT access token
  */
-export function generateToken(userId: string, role: string): string {
+export function generateToken(userId: string, role: UserRole): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
     throw new Error('JWT_SECRET is not configured');
@@ -56,14 +56,13 @@ export async function comparePassword(password: string, hash: string): Promise<b
 }
 
 /**
- * Extract user from Authorization header and verify admin/moderator role
- * Returns the authenticated user or null
+ * ADMIN AUTH
  */
 export async function adminAuth(request: Request): Promise<{
   id: string;
   name: string;
   email: string;
-  role: string;
+  role: UserRole;
 } | null> {
   try {
     const authHeader = request.headers.get('Authorization');
@@ -79,12 +78,10 @@ export async function adminAuth(request: Request): Promise<{
       select: { id: true, name: true, email: true, role: true, isBanned: true },
     });
 
-    if (!user) {
-      return null;
-    }
+    if (!user) return null;
 
-    // Only admin or moderator can access admin routes
-    if (user.role !== 'admin' && user.role !== 'moderator') {
+    // ✅ FIXED ENUM CHECK
+    if (user.role !== UserRole.ADMIN && user.role !== UserRole.MODERATOR) {
       return null;
     }
 
@@ -94,17 +91,14 @@ export async function adminAuth(request: Request): Promise<{
   }
 }
 
-// ============ USER AUTH (RBAC - any authenticated user) ============
-
 /**
- * Extract user from Authorization header (any authenticated user, not just admin)
- * Returns the authenticated user or null
+ * USER AUTH
  */
 export async function userAuth(request: Request): Promise<{
   id: string;
   name: string;
   email: string;
-  role: string;
+  role: UserRole;
   isBanned: boolean;
 } | null> {
   try {
@@ -131,11 +125,8 @@ export async function userAuth(request: Request): Promise<{
   }
 }
 
-// ============ BAN CHECKING ============
-
 /**
- * Check if a user (by userId, fingerprint, or IP) is currently banned
- * Used for ban enforcement at the API level
+ * BAN CHECK
  */
 export async function checkBanStatus(
   userId?: string,
@@ -144,15 +135,9 @@ export async function checkBanStatus(
 ): Promise<{ isBanned: boolean; reason?: string }> {
   const orConditions: Record<string, unknown>[] = [];
 
-  if (userId) {
-    orConditions.push({ userId });
-  }
-  if (fingerprint) {
-    orConditions.push({ fingerprint });
-  }
-  if (ipAddress) {
-    orConditions.push({ ipAddress });
-  }
+  if (userId) orConditions.push({ userId });
+  if (fingerprint) orConditions.push({ fingerprint });
+  if (ipAddress) orConditions.push({ ipAddress });
 
   if (orConditions.length === 0) {
     return { isBanned: false };
@@ -169,7 +154,6 @@ export async function checkBanStatus(
     return { isBanned: false };
   }
 
-  // Check if temporary ban has expired
   if (ban.expiresAt && ban.expiresAt < new Date()) {
     await db.ban.update({
       where: { id: ban.id },
@@ -182,16 +166,17 @@ export async function checkBanStatus(
 }
 
 /**
- * Create a middleware function that checks ban status
- * Can be used in any API route
+ * BAN GUARD
  */
 export async function banGuard(request: Request): Promise<{
   isBanned: boolean;
   reason?: string;
 } | null> {
   const fingerprint = request.headers.get('x-fingerprint');
-  const clientIp = request.headers.get('x-real-ip') ||
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
+  const clientIp =
+    request.headers.get('x-real-ip') ||
+    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+    'unknown';
 
   return checkBanStatus(undefined, fingerprint || undefined, clientIp);
 }
