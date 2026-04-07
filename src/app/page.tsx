@@ -69,7 +69,7 @@ export default function Home() {
   // 🎯 Gender select (ANON USER)
   // =============================
   const handleGenderSelect = useCallback(
-    (gender: 'MALE' | 'FEMALE') => {
+    (gender: 'male' | 'female') => {
       const anonymousName = `Stranger_${Math.floor(Math.random() * 9000) + 1000}`
 
       setAnonymousUser({
