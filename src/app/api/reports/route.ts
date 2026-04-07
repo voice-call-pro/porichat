@@ -27,10 +27,9 @@ export async function POST(request: NextRequest) {
     const report = await db.report.create({
       data: {
         reportedId,
-        reportedType: reportedType
-          ? reportedType === 'registered'
-            ? UserType.REGISTERED
-            : UserType.ANONYMOUS
+        reportedType:
+          reportedType === 'registered'
+            ? UserType.REGISTERED          
           : UserType.ANONYMOUS,
 
         reason,
