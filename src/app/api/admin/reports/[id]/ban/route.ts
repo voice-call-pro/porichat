@@ -3,13 +3,14 @@ import { db } from '@/lib/db';
 import { adminAuth } from '@/lib/auth';
 import { successResponse, errorResponse } from '@/lib/response';
 import { banFromReportSchema } from '@/lib/validation';
+import { BanType, LogLevel, UserType, ReportStatus } from '@prisma/client';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Verify admin authentication
+    // 🔐 Verify admin authentication
     const admin = await adminAuth(request);
     if (!admin) {
       return errorResponse('Unauthorized', 401);
@@ -18,7 +19,7 @@ export async function POST(
     const { id } = await params;
     const body = await request.json();
 
-    // Validate input
+    // ✅ Validate input
     const parsed = banFromReportSchema.safeParse(body);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
@@ -27,7 +28,13 @@ export async function POST(
 
     const { type, duration, reason } = parsed.data;
 
-    // Find report
+    // 🔄 Convert type → enum
+    const finalType =
+      type === 'temporary'
+        ? BanType.TEMPORARY
+        : BanType.PERMANENT;
+
+    // 🔍 Find report
     const report = await db.report.findUnique({
       where: { id },
     });
@@ -36,67 +43,80 @@ export async function POST(
       return errorResponse('Report not found', 404);
     }
 
-    // Calculate expiration for temporary bans
-    const expiresAt = type === 'temporary' && duration
-      ? new Date(Date.now() + duration * 1000)
-      : null;
+    // ⏳ Expiry calculation
+    const expiresAt =
+      finalType === BanType.TEMPORARY && duration
+        ? new Date(Date.now() + duration * 1000)
+        : null;
 
-    // Create Ban record
+    // 🚫 Create Ban
     const ban = await db.ban.create({
       data: {
-        userId: report.reportedId,
+        userId: report.reportedId || undefined,
         userType: report.reportedType,
-        userName: report.reportedName,
-        fingerprint: report.fingerprint || undefined,
-        ipAddress: report.ipAddress || undefined,
+        anonId: report.anonReportedId || undefined,
+        fingerprintHash: report.fingerprintHash || undefined,
+        ipHash: report.ipHash || undefined,
         reason,
-        type,
+        type: finalType,
         duration: duration || null,
         expiresAt,
-        bannedBy: admin.id,
-        bannedByName: admin.name,
+        bannedById: admin.id,
       },
     });
 
-    // Mark report as resolved
+    // ✅ Mark report resolved
     await db.report.update({
       where: { id },
       data: {
-        status: 'resolved',
+        status: ReportStatus.RESOLVED,
         updatedAt: new Date(),
       },
     });
 
-    // Update user banned status if registered user
-    if (report.reportedType === 'registered') {
+    // 🚫 Update user ban status
+    if (
+      report.reportedType === UserType.REGISTERED &&
+      report.reportedId
+    ) {
       await db.user.update({
         where: { id: report.reportedId },
         data: { isBanned: true },
       });
-    } else if (report.reportedType === 'anonymous' && report.reportedId) {
+    } else if (
+      report.reportedType === UserType.ANONYMOUS &&
+      report.anonReportedId
+    ) {
       await db.anonymousUser.updateMany({
-        where: { id: report.reportedId },
+        where: { id: report.anonReportedId },
         data: { isBanned: true },
       });
     }
 
-    // Log action
+    // 🧾 Log action
     await db.systemLog.create({
       data: {
-        level: 'warning',
+        level: LogLevel.WARN,
         action: 'ban_from_report',
         userId: admin.id,
-        userType: 'registered',
-        details: `${admin.name} banned ${report.reportedName} (${report.reportedType}:${report.reportedId}) from report ${id}. Type: ${type}, Duration: ${duration || 'permanent'}. Reason: ${reason}`,
+        userType: UserType.REGISTERED,
+        details: `${admin.name} banned ${
+          report.reportedId || report.anonReportedId || 'unknown'
+        } from report ${id}. Type: ${finalType}, Duration: ${
+          duration || 'permanent'
+        }. Reason: ${reason}`,
       },
     });
 
     return successResponse({
-      message: `User ${report.reportedName} has been banned`,
+      message: `User has been banned`,
       ban,
     });
+
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
