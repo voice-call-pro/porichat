@@ -3,7 +3,10 @@ import { NextResponse } from 'next/server';
 /**
  * Standard success response helper
  */
-export function successResponse(data: unknown, status: number = 200) {
+export function successResponse(
+  data: Record<string, unknown> = {},
+  status: number = 200
+) {
   return NextResponse.json(
     { success: true, ...data },
     { status }
@@ -23,7 +26,10 @@ export function errorResponse(message: string, status: number = 400) {
 /**
  * Validation error response with Zod error details
  */
-export function validationErrorResponse(errors: Array<{ field: string; message: string }>, status: number = 400) {
+export function validationErrorResponse(
+  errors: Array<{ field: string; message: string }>,
+  status: number = 400
+) {
   return NextResponse.json(
     { success: false, error: 'Validation failed', details: errors },
     { status }
