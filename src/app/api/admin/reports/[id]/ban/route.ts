@@ -29,10 +29,7 @@ export async function POST(
     const { type, duration, reason } = parsed.data;
 
     // 🔄 Convert type → enum
-    const finalType =
-      type === 'temporary'
-        ? BanType.TEMPORARY
-        : BanType.PERMANENT;
+    const finalType = type;
 
     // 🔍 Find report
     const report = await db.report.findUnique({
