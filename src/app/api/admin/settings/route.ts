@@ -3,11 +3,11 @@ import { db } from '@/lib/db';
 import { adminAuth } from '@/lib/auth';
 import { successResponse, errorResponse } from '@/lib/response';
 import { updateSettingSchema } from '@/lib/validation';
+import { LogLevel, UserType } from '@prisma/client';
 
 // GET all system settings
 export async function GET(request: NextRequest) {
   try {
-    // Verify admin authentication
     const admin = await adminAuth(request);
     if (!admin) {
       return errorResponse('Unauthorized', 401);
@@ -19,7 +19,9 @@ export async function GET(request: NextRequest) {
 
     return successResponse({ settings });
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
@@ -27,7 +29,6 @@ export async function GET(request: NextRequest) {
 // PUT update a system setting
 export async function PUT(request: NextRequest) {
   try {
-    // Verify admin authentication
     const admin = await adminAuth(request);
     if (!admin) {
       return errorResponse('Unauthorized', 401);
@@ -35,7 +36,6 @@ export async function PUT(request: NextRequest) {
 
     const body = await request.json();
 
-    // Validate input
     const parsed = updateSettingSchema.safeParse(body);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
@@ -44,20 +44,19 @@ export async function PUT(request: NextRequest) {
 
     const { key, value } = parsed.data;
 
-    // Upsert the setting
     const setting = await db.systemSetting.upsert({
       where: { key },
       update: { value, updatedAt: new Date() },
       create: { key, value },
     });
 
-    // Log action
+    // 🧾 FIXED LOG
     await db.systemLog.create({
       data: {
-        level: 'info',
+        level: LogLevel.INFO,
         action: 'setting_updated',
         userId: admin.id,
-        userType: 'registered',
+        userType: UserType.REGISTERED,
         details: `${admin.name} updated setting "${key}" to "${value}"`,
       },
     });
@@ -66,8 +65,11 @@ export async function PUT(request: NextRequest) {
       message: `Setting "${key}" updated successfully`,
       setting,
     });
+
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
