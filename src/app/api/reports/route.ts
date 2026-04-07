@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
       data: {
         reportedId,
         reportedType:
-          reportedType === 'registered'
+          reportedType === UserType.REGISTERED
             ? UserType.REGISTERED          
           : UserType.ANONYMOUS,
 
