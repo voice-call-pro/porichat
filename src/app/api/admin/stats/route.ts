@@ -2,18 +2,19 @@ import { NextRequest } from 'next/server';
 import { db } from '@/lib/db';
 import { adminAuth } from '@/lib/auth';
 import { successResponse, errorResponse } from '@/lib/response';
+import { SessionStatus } from '@prisma/client';
 
 export async function GET(request: NextRequest) {
   try {
-    // Verify admin authentication
     const admin = await adminAuth(request);
     if (!admin) {
       return errorResponse('Unauthorized', 401);
     }
 
-    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const twentyFourHoursAgo = new Date(
+      Date.now() - 24 * 60 * 60 * 1000
+    );
 
-    // Run all queries in parallel for performance
     const [
       totalUsers,
       totalAnonymousUsers,
@@ -25,19 +26,31 @@ export async function GET(request: NextRequest) {
     ] = await Promise.all([
       db.user.count(),
       db.anonymousUser.count(),
-      db.chatSession.count({ where: { status: 'active' } }),
-      db.report.count({ where: { createdAt: { gte: twentyFourHoursAgo } } }),
-      db.ban.count({ where: { isActive: true } }),
+
+      // 🔥 FIX: enum use
+      db.chatSession.count({
+        where: { status: SessionStatus.ACTIVE },
+      }),
+
+      db.report.count({
+        where: { createdAt: { gte: twentyFourHoursAgo } },
+      }),
+
+      db.ban.count({
+        where: { isActive: true },
+      }),
+
+      // 🔥 FIX: removed invalid fields
       db.report.findMany({
         where: { createdAt: { gte: twentyFourHoursAgo } },
         take: 10,
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
-          reporterName: true,
+          reporterId: true,
           reporterType: true,
           reportedId: true,
-          reportedName: true,
+          anonReportedId: true,
           reportedType: true,
           reason: true,
           description: true,
@@ -46,7 +59,10 @@ export async function GET(request: NextRequest) {
           createdAt: true,
         },
       }),
-      db.user.count({ where: { lastSeen: { gte: twentyFourHoursAgo } } }),
+
+      db.user.count({
+        where: { lastSeen: { gte: twentyFourHoursAgo } },
+      }),
     ]);
 
     return successResponse({
@@ -60,8 +76,11 @@ export async function GET(request: NextRequest) {
         dailyActiveUsers,
       },
     });
+
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
