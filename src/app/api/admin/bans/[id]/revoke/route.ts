@@ -66,10 +66,10 @@ export async function POST(
     // Log action
     await db.systemLog.create({
       data: {
-        level: 'info',
+        level: LogLevel.INFO,
         action: 'ban_revoked',
         userId: admin.id,
-        userType: 'registered',
+        userType: UserType.REGISTERED,
         details: `${admin.name} revoked ban ${id} for ${ban.userName || ban.userId || 'unknown'} (${ban.userType})`,
       },
     });
