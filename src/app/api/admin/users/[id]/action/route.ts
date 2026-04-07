@@ -3,13 +3,18 @@ import { db } from '@/lib/db';
 import { adminAuth } from '@/lib/auth';
 import { successResponse, errorResponse } from '@/lib/response';
 import { userActionSchema } from '@/lib/validation';
+import {
+  LogLevel,
+  UserType,
+  BanType,
+  UserRole,
+} from '@prisma/client';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Verify admin authentication
     const admin = await adminAuth(request);
     if (!admin) {
       return errorResponse('Unauthorized', 401);
@@ -18,7 +23,6 @@ export async function POST(
     const { id } = await params;
     const body = await request.json();
 
-    // Validate input
     const parsed = userActionSchema.safeParse(body);
     if (!parsed.success) {
       const firstError = parsed.error.issues[0];
@@ -27,7 +31,6 @@ export async function POST(
 
     const { action, reason, duration } = parsed.data;
 
-    // Find target user
     const targetUser = await db.user.findUnique({
       where: { id },
     });
@@ -36,53 +39,57 @@ export async function POST(
       return errorResponse('User not found', 404);
     }
 
-    // Prevent admin from demoting themselves
     if (id === admin.id && action === 'demote') {
       return errorResponse('Cannot demote yourself', 400);
     }
 
     switch (action) {
+      // 🔴 BAN
       case 'ban': {
         await db.user.update({
           where: { id },
           data: { isBanned: true },
         });
 
-        // Create ban record
+        const finalType =
+          duration ? BanType.TEMPORARY : BanType.PERMANENT;
+
         await db.ban.create({
           data: {
             userId: targetUser.id,
-            userType: 'REGISTERED',
-            userName: targetUser.name,
+            userType: UserType.REGISTERED,
             reason: reason || 'Banned by admin',
-            type: duration ? 'temporary' : 'permanent',
-            duration: duration,
-            expiresAt: duration ? new Date(Date.now() + duration * 1000) : null,
-            bannedBy: admin.id,
-            bannedByName: admin.name,
+            type: finalType,
+            duration: duration || null,
+            expiresAt: duration
+              ? new Date(Date.now() + duration * 1000)
+              : null,
+            bannedById: admin.id,
           },
         });
 
         await db.systemLog.create({
           data: {
-            level: 'warning',
+            level: LogLevel.WARN,
             action: 'user_banned',
             userId: admin.id,
-            userType: 'registered',
-            details: `Banned user ${targetUser.name} (${targetUser.id}). Reason: ${reason || 'No reason provided'}`,
+            userType: UserType.REGISTERED,
+            details: `Banned user ${targetUser.name} (${targetUser.id})`,
           },
         });
 
-        return successResponse({ message: `User ${targetUser.name} has been banned` });
+        return successResponse({
+          message: `User ${targetUser.name} banned`,
+        });
       }
 
+      // 🟢 UNBAN
       case 'unban': {
         await db.user.update({
           where: { id },
           data: { isBanned: false },
         });
 
-        // Deactivate active bans
         await db.ban.updateMany({
           where: { userId: id, isActive: true },
           data: { isActive: false },
@@ -90,20 +97,23 @@ export async function POST(
 
         await db.systemLog.create({
           data: {
-            level: 'info',
+            level: LogLevel.INFO,
             action: 'user_unbanned',
             userId: admin.id,
-            userType: 'registered',
-            details: `Unbanned user ${targetUser.name} (${targetUser.id})`,
+            userType: UserType.REGISTERED,
+            details: `Unbanned ${targetUser.name}`,
           },
         });
 
-        return successResponse({ message: `User ${targetUser.name} has been unbanned` });
+        return successResponse({
+          message: `User ${targetUser.name} unbanned`,
+        });
       }
 
+      // 🟡 SUSPEND
       case 'suspend': {
-        // Suspend is a temporary ban (24 hours)
-        const suspendDuration = duration || 86400; // 24 hours default
+        const suspendDuration = duration || 86400;
+
         await db.user.update({
           where: { id },
           data: { isBanned: true },
@@ -112,36 +122,41 @@ export async function POST(
         await db.ban.create({
           data: {
             userId: targetUser.id,
-            userType: 'registered',
-            userName: targetUser.name,
-            reason: reason || 'Suspended by admin',
-            type: 'temporary',
+            userType: UserType.REGISTERED,
+            reason: reason || 'Suspended',
+            type: BanType.TEMPORARY,
             duration: suspendDuration,
             expiresAt: new Date(Date.now() + suspendDuration * 1000),
-            bannedBy: admin.id,
-            bannedByName: admin.name,
+            bannedById: admin.id,
           },
         });
 
         await db.systemLog.create({
           data: {
-            level: 'warning',
+            level: LogLevel.WARN,
             action: 'user_suspended',
             userId: admin.id,
-            userType: 'registered',
-            details: `Suspended user ${targetUser.name} (${targetUser.id}) for ${suspendDuration}s. Reason: ${reason || 'No reason provided'}`,
+            userType: UserType.REGISTERED,
+            details: `Suspended ${targetUser.name}`,
           },
         });
 
-        return successResponse({ message: `User ${targetUser.name} has been suspended` });
+        return successResponse({
+          message: `User ${targetUser.name} suspended`,
+        });
       }
 
+      // 🔼 PROMOTE
       case 'promote': {
-        if (targetUser.role === 'admin') {
-          return errorResponse('User is already an admin', 400);
+        if (targetUser.role === UserRole.ADMIN) {
+          return errorResponse('Already admin', 400);
         }
 
-        const newRole = targetUser.role === 'user' ? 'moderator' : 'admin';
+        const newRole =
+          targetUser.role === UserRole.USER
+            ? UserRole.MODERATOR
+            : UserRole.ADMIN;
+
         await db.user.update({
           where: { id },
           data: { role: newRole },
@@ -149,46 +164,58 @@ export async function POST(
 
         await db.systemLog.create({
           data: {
-            level: 'info',
+            level: LogLevel.INFO,
             action: 'user_promoted',
             userId: admin.id,
-            userType: 'registered',
-            details: `Promoted user ${targetUser.name} (${targetUser.id}) from ${targetUser.role} to ${newRole}`,
+            userType: UserType.REGISTERED,
+            details: `Promoted ${targetUser.name} to ${newRole}`,
           },
         });
 
-        return successResponse({ message: `User ${targetUser.name} has been promoted to ${newRole}` });
+        return successResponse({
+          message: `User promoted to ${newRole}`,
+        });
       }
 
+      // 🔽 DEMOTE
       case 'demote': {
-        if (targetUser.role === 'user') {
-          return errorResponse('User is already a regular user', 400);
+        if (targetUser.role === UserRole.USER) {
+          return errorResponse('Already user', 400);
         }
 
-        const demotedRole = targetUser.role === 'admin' ? 'moderator' : 'user';
+        const newRole =
+          targetUser.role === UserRole.ADMIN
+            ? UserRole.MODERATOR
+            : UserRole.USER;
+
         await db.user.update({
           where: { id },
-          data: { role: demotedRole },
+          data: { role: newRole },
         });
 
         await db.systemLog.create({
           data: {
-            level: 'warning',
+            level: LogLevel.WARN,
             action: 'user_demoted',
             userId: admin.id,
-            userType: 'registered',
-            details: `Demoted user ${targetUser.name} (${targetUser.id}) from ${targetUser.role} to ${demotedRole}`,
+            userType: UserType.REGISTERED,
+            details: `Demoted ${targetUser.name} to ${newRole}`,
           },
         });
 
-        return successResponse({ message: `User ${targetUser.name} has been demoted to ${demotedRole}` });
+        return successResponse({
+          message: `User demoted to ${newRole}`,
+        });
       }
 
       default:
         return errorResponse('Invalid action', 400);
     }
+
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Internal server error';
+    const message =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return errorResponse(message, 500);
   }
 }
